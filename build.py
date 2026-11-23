@@ -311,7 +311,7 @@ def page(path, title, desc, body, image='', jsonld=None, noindex=False):
             '<a href="%s">Интерактивный календарь</a> · <a href="%s">Telegram-канал</a> · <a href="/arhiv/">Архив</a> · '
             '<a href="%sorganizers">Разместить турнир бесплатно</a></footer>' + METRIKA_JS + '</body></html>') % (
         E(title), E(desc), E(canon), '<meta name="robots" content="noindex">' if noindex else '',
-        BRAND, E(title), E(desc), E(canon), ('<meta property="og:image" content="%s">' % E(image)) if image else '',
+        BRAND, E(title), E(desc), E(canon), (('<meta property="og:image" content="%s"><meta name="twitter:card" content="summary_large_image">' % E(image)) + ('<meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">' if '/og/' in image else '')) if image else '',
         MAIN, FONTS, ld, MAIN, MAIN, body, MAIN, TG, MAIN)
 
 
@@ -325,6 +325,103 @@ def write(path, content):
     os.makedirs(os.path.dirname(full), exist_ok=True)
     with open(full, 'w', encoding='utf-8') as f:
         f.write(content)
+
+
+# ---------------- картинки для превью (og:image) ----------------
+# Карточка 1200×630 рисуется, если у турнира нет афиши. Нужен Pillow; без него превью просто не будет.
+try:
+    from PIL import Image, ImageDraw, ImageFont
+except ImportError:  # pragma: no cover
+    Image = None
+FONT_FILES = [os.environ.get('POLYGON_FONT') or '', 'fonts/Oswald.ttf',
+              '/usr/share/fonts/truetype/liberation/LiberationSansNarrow-Bold.ttf',
+              '/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf']
+_FONTS = {}
+
+
+def _font(size, weight=600):
+    key = (size, weight)
+    if key not in _FONTS:
+        f = None
+        for path in FONT_FILES:
+            if path and os.path.exists(path):
+                f = ImageFont.truetype(path, size)
+                try:
+                    f.set_variation_by_axes([weight])  # Oswald — вариативный шрифт
+                except Exception:
+                    pass
+                break
+        _FONTS[key] = f or ImageFont.load_default()
+    return _FONTS[key]
+
+
+def _wrap(draw, text, font, width):
+    words, lines, cur = text.split(), [], ''
+    for w in words:
+        t = (cur + ' ' + w).strip()
+        if draw.textlength(t, font=font) <= width or not cur:
+            cur = t
+        else:
+            lines.append(cur)
+            cur = w
+    if cur:
+        lines.append(cur)
+    return lines
+
+
+def og_card(path, kicker, title, band, sub=''):
+    """Рисует PNG по адресу path (например /og/123.png) и возвращает его полный URL."""
+    if Image is None:
+        return ''
+    W, H, PAD, BAND = 1200, 630, 72, 132
+    red, ink, muted = (226, 11, 45), (19, 19, 19), (102, 102, 102)
+    img = Image.new('RGB', (W, H), (255, 255, 255))
+    d = ImageDraw.Draw(img)
+    d.rectangle([0, 0, 18, H - BAND], fill=red)
+    d.text((PAD, 46), 'ПОЛИГОН', font=_font(44, 700), fill=ink)
+    host = urlparse(SITE).netloc
+    d.text((W - PAD, 58), host, font=_font(26, 400), fill=muted, anchor='ra')
+    y = 132
+    if kicker:
+        d.text((PAD, y), kicker.upper(), font=_font(34, 500), fill=red)
+        y += 58
+    title = title.upper()
+    room = H - BAND - y - (52 if sub else 24)
+    for size in (96, 84, 74, 64, 56, 50):
+        f = _font(size, 600)
+        lines = _wrap(d, title, f, W - 2 * PAD)
+        lh = int(size * 1.08)
+        if len(lines) * lh <= room:
+            break
+    max_lines = max(1, room // lh)
+    if len(lines) > max_lines:
+        lines = lines[:max_lines]
+        while lines[-1] and d.textlength(lines[-1] + '…', font=f) > W - 2 * PAD:
+            lines[-1] = lines[-1][:-1]
+        lines[-1] = lines[-1].rstrip() + '…'
+    for ln in lines:
+        d.text((PAD, y), ln, font=f, fill=ink)
+        y += lh
+    if sub:
+        d.text((PAD, y + 8), sub, font=_font(30, 400), fill=muted)
+    d.rectangle([0, H - BAND, W, H], fill=red)
+    bf = _font(52, 600)
+    while d.textlength(band.upper(), font=bf) > W - 2 * PAD and bf.size > 30:
+        bf = _font(bf.size - 4, 600)
+    d.text((PAD, H - BAND // 2), band.upper(), font=bf, fill=(255, 255, 255), anchor='lm')
+    full = os.path.join(OUT, path.strip('/'))
+    os.makedirs(os.path.dirname(full), exist_ok=True)
+    img.quantize(colors=64, method=Image.Quantize.MEDIANCUT).save(full, optimize=True)
+    return SITE + path
+
+
+def event_og(e):
+    if e['img']:
+        return e['img']
+    where = 'Онлайн' if e['online'] else e['city']
+    return og_card('/og/%s.png' % e['id'], e['sport'] or 'Соревнования', e['title'],
+                   ' · '.join(x for x in [frange(e['start'], e['end']), where] if x),
+                   ', '.join(e['levels']))
 
 
 # ---------------- страницы ----------------
@@ -427,7 +524,7 @@ def event_page(e, city_pages, all_ev):
     crumbs = {'@context': 'https://schema.org', '@type': 'BreadcrumbList', 'itemListElement': [
         {'@type': 'ListItem', 'position': 1, 'name': 'Все турниры', 'item': SITE + '/'},
         {'@type': 'ListItem', 'position': 2, 'name': e['title'], 'item': SITE + ev_url(e)}]}
-    write(ev_url(e), page(ev_url(e), title + ' | ' + BRAND, desc, body, e['img'], [ld, crumbs]))
+    write(ev_url(e), page(ev_url(e), title + ' | ' + BRAND, desc, body, event_og(e), [ld, crumbs]))
     write(ev_url(e) + 'event.ics', ics(e))
 
 
@@ -453,7 +550,9 @@ def listing(path, h1, lead, evs, title, desc, extra=''):
     body += cta()
     items = {'@context': 'https://schema.org', '@type': 'ItemList', 'itemListElement': [
         {'@type': 'ListItem', 'position': i + 1, 'url': SITE + ev_url(e), 'name': e['title']} for i, e in enumerate(up[:50])]}
-    write(path, page(path, title, desc, body, '', [items], noindex=not evs))
+    og = og_card('/og/%s.png' % (path.strip('/').replace('/', '-') or 'index'), 'Календарь «Полигона»', h1,
+                 '%d %s впереди' % (len(up), plural(len(up), 'турнир', 'турнира', 'турниров')) if up else 'Архив турниров') if evs else ''
+    write(path, page(path, title, desc, body, og, [items], noindex=not evs))
 
 
 def build(events):
@@ -523,7 +622,9 @@ def build(events):
         MAIN, extra, list_html(up), cta())
     site_ld = {'@context': 'https://schema.org', '@type': 'WebSite', 'name': BRAND, 'url': SITE + '/', 'inLanguage': 'ru'}
     write('/', page('/', 'Календарь соревнований по кроссфиту, функциональному многоборью и ГТО %d | %s' % (TODAY.year, BRAND),
-                    'Все предстоящие турниры по кроссфиту, функциональному многоборью и ГТО в России и СНГ: даты, города, уровни и регистрация.', body, '', [site_ld]))
+                    'Все предстоящие турниры по кроссфиту, функциональному многоборью и ГТО в России и СНГ: даты, города, уровни и регистрация.', body,
+                    og_card('/og/index.png', 'Кроссфит · функциональное многоборье · ГТО', 'Календарь соревнований в России и СНГ',
+                            '%d %s впереди' % (len(up), plural(len(up), 'турнир', 'турнира', 'турниров'))), [site_ld]))
     urls.insert(0, ('/', 'daily', '1.0'))
 
     write('/404.html', page('/404.html', 'Страница не найдена | ' + BRAND, 'Страница не найдена',

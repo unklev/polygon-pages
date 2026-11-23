@@ -2,7 +2,7 @@ name: Сборка страниц турниров
 
 on:
   schedule:
-    - cron: '17 */3 * * *'   # каждые 3 часа
+    - cron: '*/15 * * * *'   # проверка каждые 15 минут; сборка — только если данные изменились
   workflow_dispatch: {}       # кнопка «Run workflow» во вкладке Actions
   push:
     branches: [main]
@@ -14,26 +14,75 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.check.outputs.changed }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Скачать таблицу и посчитать отпечаток
+        id: sum
+        run: |
+          URL=$(python3 -c "import re;s=open('build.py',encoding='utf-8').read();print(re.search(r\"or '(https://docs.google.com/[^']+)'\",s).group(1))")
+          curl -sSL --retry 3 "$URL" -o data.csv || true
+          if ! head -1 data.csv | grep -q 'Название'; then
+            curl -sSL --retry 3 'https://script.google.com/macros/s/AKfycbyGgRhjg6cIgroXVK4XWciZ-jAIpkbPZv9iB4nMYm0eYRG1O1Jdfd63bM8dzRZuonLYrQ/exec?csv=1' -o data.csv || true
+          fi
+          head -1 data.csv | grep -q 'Название' || { echo 'Таблица не скачалась'; rm -f data.csv; }
+          DAY=$(TZ=Asia/Yekaterinburg date +%F)
+          SUM=$( (cat data.csv 2>/dev/null; echo "$DAY"; cat build.py .github/workflows/build.yml) | sha256sum | cut -c1-40)
+          echo "sum=$SUM" >> "$GITHUB_OUTPUT"
+
+      - name: Проверить, менялись ли данные
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .built
+          key: built-${{ steps.sum.outputs.sum }}
+          lookup-only: true
+
+      - name: Решить, нужна ли сборка
+        id: check
+        run: |
+          if [ "${{ github.event_name }}" != "schedule" ] || [ "${{ steps.cache.outputs.cache-hit }}" != "true" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"; echo 'Собираем'
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"; echo 'Данные не менялись — пропускаем'
+          fi
+
       - uses: actions/setup-python@v5
+        if: steps.check.outputs.changed == 'true'
         with:
           python-version: '3.12'
+
       - name: Собрать сайт из таблицы
-        run: python build.py
+        if: steps.check.outputs.changed == 'true'
+        run: if [ -f data.csv ]; then python build.py data.csv; else python build.py; fi
         env:
           POLYGON_PAGES_URL: ${{ vars.POLYGON_PAGES_URL || 'https://unklev.github.io/polygon-pages' }}
+
       - uses: actions/upload-pages-artifact@v3
+        if: steps.check.outputs.changed == 'true'
         with:
           path: public
 
+      - name: Запомнить отпечаток
+        if: steps.check.outputs.changed == 'true'
+        run: mkdir -p .built && echo "${{ steps.sum.outputs.sum }}" > .built/sum
+
+      - uses: actions/cache/save@v4
+        if: steps.check.outputs.changed == 'true' && steps.cache.outputs.cache-hit != 'true'
+        with:
+          path: .built
+          key: built-${{ steps.sum.outputs.sum }}
+
   deploy:
     needs: build
+    if: needs.build.outputs.changed == 'true'
     runs-on: ubuntu-latest
     environment:
       name: github-pages

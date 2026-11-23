@@ -59,6 +59,13 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Pillow и шрифт Oswald для картинок превью
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          pip install --quiet pillow || true
+          mkdir -p fonts
+          curl -sSL --retry 3 -o fonts/Oswald.ttf 'https://github.com/google/fonts/raw/main/ofl/oswald/Oswald%5Bwght%5D.ttf' || rm -f fonts/Oswald.ttf
+
       - name: Собрать сайт из таблицы
         if: steps.check.outputs.changed == 'true'
         run: if [ -f data.csv ]; then python build.py data.csv; else python build.py; fi

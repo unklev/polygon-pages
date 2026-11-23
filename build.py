@@ -305,11 +305,11 @@ def page(path, title, desc, body, image='', jsonld=None, noindex=False):
             '<meta property="og:description" content="%s"><meta property="og:url" content="%s">%s'
             '<link rel="icon" href="%sfavicon.ico">%s<link rel="stylesheet" href="/assets/style.css">%s</head><body>'
             '<header class="top"><div class="wrap"><a class="logo" href="/">Полигон<small>Встретимся на соревнованиях!</small></a>'
-            '<nav><a class="btn ghost sm" href="%s">Календарь</a><a class="btn sm" href="%s#popup:myform">Разместить турнир</a></nav></div></header>'
+            '<nav><a class="btn ghost sm" href="%s">Календарь</a><a class="btn sm" href="%sorganizers">Разместить турнир</a></nav></div></header>'
             '<main class="wrap">%s</main>'
             '<footer class="wrap foot">«Полигон» — бесплатная площадка с анонсами соревнований по кроссфиту, функциональному многоборью и ГТО в России и СНГ. '
             '<a href="%s">Интерактивный календарь</a> · <a href="%s">Telegram-канал</a> · <a href="/arhiv/">Архив</a> · '
-            '<a href="%s#popup:myform">Разместить турнир бесплатно</a></footer>' + METRIKA_JS + '</body></html>') % (
+            '<a href="%sorganizers">Разместить турнир бесплатно</a></footer>' + METRIKA_JS + '</body></html>') % (
         E(title), E(desc), E(canon), '<meta name="robots" content="noindex">' if noindex else '',
         BRAND, E(title), E(desc), E(canon), ('<meta property="og:image" content="%s">' % E(image)) if image else '',
         MAIN, FONTS, ld, MAIN, MAIN, body, MAIN, TG, MAIN)
@@ -358,7 +358,7 @@ def list_html(evs, by_month=True):
 
 def cta():
     return ('<div class="cta"><b>Проводите турнир?</b><span class="note">Разместите его в календаре «Полигона» бесплатно — '
-            'анонс увидят атлеты по всей России и в Telegram-канале.</span><a class="btn" href="%s#popup:myform">Разместить турнир</a></div>') % MAIN
+            'анонс увидят атлеты по всей России и в Telegram-канале.</span><a class="btn" href="%sorganizers">Разместить турнир</a></div>') % MAIN
 
 
 def event_page(e, city_pages, all_ev):

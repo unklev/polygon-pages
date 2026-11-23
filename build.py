@@ -38,6 +38,17 @@ CSV_URLS = [
     # запасной источник: та же таблица через Apps Script
     'https://script.google.com/macros/s/AKfycbyGgRhjg6cIgroXVK4XWciZ-jAIpkbPZv9iB4nMYm0eYRG1O1Jdfd63bM8dzRZuonLYrQ/exec?csv=1',
 ]
+# Яндекс Метрика (тот же счётчик, что на thepolygon.ru) и цели по кликам: data-goal="…" на ссылках
+METRIKA_ID = '99804825'
+METRIKA_JS = ('<script>(function(m,e,t,r,i,k,a){m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};m[i].l=1*new Date();'
+              'for(var j=0;j<document.scripts.length;j++){if(document.scripts[j].src===r){return;}}'
+              'k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)})'
+              '(window,document,"script","https://mc.yandex.ru/metrika/tag.js","ym");'
+              'ym(' + METRIKA_ID + ',"init",{clickmap:true,trackLinks:true,accurateTrackBounce:true});'
+              'document.addEventListener("click",function(ev){var a=ev.target.closest&&ev.target.closest("[data-goal]");'
+              'if(a&&window.ym)ym(' + METRIKA_ID + ',"reachGoal",a.getAttribute("data-goal"));},true);</script>'
+              '<noscript><div><img src="https://mc.yandex.ru/watch/' + METRIKA_ID + '" style="position:absolute;left:-9999px" alt=""></div></noscript>') if METRIKA_ID else ''
+
 # Подтверждение прав в Яндекс Вебмастере / Google Search Console (метатеги на всех страницах)
 VERIFY = {'yandex-verification': '39d51cf908f446ab'}
 VERIFY_META = ''.join('<meta name="%s" content="%s">' % kv for kv in VERIFY.items())
@@ -298,7 +309,7 @@ def page(path, title, desc, body, image='', jsonld=None, noindex=False):
             '<main class="wrap">%s</main>'
             '<footer class="wrap foot">«Полигон» — бесплатная площадка с анонсами соревнований по кроссфиту, функциональному многоборью и ГТО в России и СНГ. '
             '<a href="%s">Интерактивный календарь</a> · <a href="%s">Telegram-канал</a> · <a href="/arhiv/">Архив</a> · '
-            '<a href="%s#popup:myform">Разместить турнир бесплатно</a></footer></body></html>') % (
+            '<a href="%s#popup:myform">Разместить турнир бесплатно</a></footer>' + METRIKA_JS + '</body></html>') % (
         E(title), E(desc), E(canon), '<meta name="robots" content="noindex">' if noindex else '',
         BRAND, E(title), E(desc), E(canon), ('<meta property="og:image" content="%s">' % E(image)) if image else '',
         MAIN, FONTS, ld, MAIN, MAIN, body, MAIN, TG, MAIN)
@@ -374,12 +385,12 @@ def event_page(e, city_pages, all_ev):
     dl = ''.join('<div><dt>%s</dt><dd>%s</dd></div>' % (E(a), E(b)) for a, b in facts)
     acts = []
     if not e['past'] and reg:
-        acts.append('<a class="btn" href="%s" target="_blank" rel="nofollow noopener">Регистрация</a>' % E(reg))
+        acts.append('<a class="btn" data-goal="reg_click" href="%s" target="_blank" rel="nofollow noopener">Регистрация</a>' % E(reg))
     if e['link'] and (e['past'] or e['link'] != reg):
-        acts.append('<a class="btn ghost" href="%s" target="_blank" rel="nofollow noopener">%s</a>' % (E(e['link']), 'Страница организатора' if e['past'] else 'Анонс организатора'))
+        acts.append('<a class="btn ghost" data-goal="org_click" href="%s" target="_blank" rel="nofollow noopener">%s</a>' % (E(e['link']), 'Страница организатора' if e['past'] else 'Анонс организатора'))
     if not e['past']:
-        acts.append('<a class="btn ghost" href="%sevent.ics" download>Добавить в календарь</a>' % ev_url(e))
-    acts.append('<a class="btn ghost" href="%s#event-%s">Открыть в календаре «Полигона»</a>' % (MAIN, E(e['id'])))
+        acts.append('<a class="btn ghost" data-goal="ics_click" href="%sevent.ics" download>Добавить в календарь</a>' % ev_url(e))
+    acts.append('<a class="btn ghost" data-goal="calendar_open" href="%s#event-%s">Открыть в календаре «Полигона»</a>' % (MAIN, E(e['id'])))
     city_link = ('<a href="/goroda/%s/">%s</a> → ' % (slug(e['city_short']), E(e['city_short']))) if slug(e['city_short']) in city_pages else ''
     if e['abroad']:
         city_link = '<a href="/za-rubezhom/">За рубежом</a> → ' + city_link

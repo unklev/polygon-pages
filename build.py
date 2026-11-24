@@ -81,7 +81,7 @@ COLS = {'id': 'ID', 'title': 'Название', 'start': 'Дата начала
         'qe': 'Онлайн-отбор до', 'city': 'Город', 'place': 'Место (подробно)', 'online': 'Онлайн', 'sport': 'Вид спорта',
         'levels': 'Уровни', 'format': 'Формат', 'fee': 'Взнос', 'prize': 'Призы', 'deadline': 'Регистрация до',
         'link': 'Ссылка организатора', 'img': 'Картинка', 'descr': 'Описание', 'show': 'Показывать',
-        'country': 'Страна', 'll': 'Координаты', 'reg': 'Ссылка на регистрацию'}
+        'country': 'Страна', 'll': 'Координаты', 'reg': 'Ссылка на регистрацию', 'res': 'Ссылка на результаты'}
 
 TR = dict(zip('абвгдеёжзийклмнопрстуфхцчшщъыьэюя',
               ['a', 'b', 'v', 'g', 'd', 'e', 'e', 'zh', 'z', 'i', 'y', 'k', 'l', 'm', 'n', 'o', 'p', 'r', 's', 't', 'u', 'f',
@@ -162,7 +162,7 @@ def parse(text):
             'sport': sport, 'levels': [x.strip() for x in g('levels').split(',') if x.strip()],
             'format': [x.strip() for x in g('format').split(',') if x.strip()],
             'fee': g('fee'), 'prize': g('prize'), 'deadline': pdate(g('deadline')),
-            'link': url_ok(g('link')), 'reg': url_ok(g('reg')), 'img': url_ok(g('img')), 'descr': g('descr'),
+            'link': url_ok(g('link')), 'reg': url_ok(g('reg')), 'res': url_ok(g('res')), 'img': url_ok(g('img')), 'descr': g('descr'),
             'past': end < TODAY,
         })
     events.sort(key=lambda e: (e['start'], e['title']))
@@ -427,6 +427,8 @@ def event_og(e):
 # ---------------- страницы ----------------
 def row_html(e):
     c, t = status(e)
+    if e['past'] and e.get('res'):
+        t = 'есть результаты'
     d = e['start']
     day = ('%d–%d' % (d.day, e['end'].day)) if e['end'] != d and e['end'].month == d.month else str(d.day)
     meta = ' · '.join(x for x in [e['city'], e['sport'], ', '.join(e['levels']), ', '.join(e['format'])] if x)
@@ -481,6 +483,8 @@ def event_page(e, city_pages, all_ev):
         facts.append(('Призы', e['prize']))
     dl = ''.join('<div><dt>%s</dt><dd>%s</dd></div>' % (E(a), E(b)) for a, b in facts)
     acts = []
+    if e['res']:
+        acts.append('<a class="btn" data-goal="results_click" href="%s" target="_blank" rel="nofollow noopener">Результаты</a>' % E(e['res']))
     if not e['past'] and reg:
         acts.append('<a class="btn" data-goal="reg_click" href="%s" target="_blank" rel="nofollow noopener">Регистрация</a>' % E(reg))
     if e['link'] and (e['past'] or e['link'] != reg):

@@ -55,6 +55,8 @@ VERIFY_META = ''.join('<meta name="%s" content="%s">' % kv for kv in VERIFY.item
 SITE = (os.environ.get('POLYGON_PAGES_URL') or 'https://turniry.thepolygon.ru').rstrip('/')
 MAIN = 'https://thepolygon.ru/'
 TG = 'https://t.me/thepolygonnews'
+# веб-приложение Apps Script: принимает ссылки на результаты от посетителей
+EXEC_URL = 'https://script.google.com/macros/s/AKfycbyGgRhjg6cIgroXVK4XWciZ-jAIpkbPZv9iB4nMYm0eYRG1O1Jdfd63bM8dzRZuonLYrQ/exec'
 OUT = os.environ.get('POLYGON_OUT') or 'public'
 BRAND = 'Полигон'
 
@@ -251,6 +253,7 @@ a{color:inherit}
 .btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 16px;font-family:var(--display);font-size:15px;letter-spacing:.08em;text-transform:uppercase;text-decoration:none;border:1px solid var(--red);background:var(--red);color:#fff;cursor:pointer}
 .btn.ghost{background:var(--paper);border-color:var(--ink);color:var(--ink)}
 .btn.sm{min-height:36px;font-size:13px;padding:0 12px}
+.resform{margin-top:18px;padding:14px;border:1px dashed var(--ink)}.resform h3{margin:0 0 6px;font-family:var(--display);font-size:16px;letter-spacing:.06em;text-transform:uppercase}.resform p{margin:0 0 10px;font-size:14px}.resform input{width:100%;box-sizing:border-box;min-height:40px;margin:0 0 8px;padding:0 10px;border:1px solid var(--ink);font:inherit;font-size:15px;background:#fff}.resform .hp{position:absolute;left:-5000px;width:1px;height:1px;overflow:hidden}.resform .ok{font-weight:700;color:var(--red)}
 .crumbs{font-size:13px;color:var(--muted);margin:22px 0 0}
 .crumbs a{color:var(--muted)}
 .kicker{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--red);margin-top:18px}
@@ -502,13 +505,13 @@ def event_page(e, city_pages, all_ev):
             '<div class="kicker">%s · %s</div><h1>%s</h1>'
             '<div class="dateline"><span>%s, %s</span><span class="st %s">%s</span></div>'
             '<div class="grid"><div class="text">%s</div><aside>%s<dl class="facts">%s</dl><div class="actions">%s'
-            '<p class="note">Условия могут меняться — уточняйте у организатора.</p></div></aside></div>'
+            '<p class="note">Условия могут меняться — уточняйте у организатора.</p></div>%s</aside></div>'
             '<section><h2>%s</h2>%s</section>%s') % (
         city_link, E(e['title']), E(e['sport']), E(where), E(e['title']),
         E(frange(e['start'], e['end'])), E(where), c, E(st),
         linkify(e['descr']) if e['descr'] else '<p class="note">Подробное описание — на странице организатора.</p>',
         ('<img class="poster" src="%s" alt="Афиша: %s" loading="lazy">' % (E(e['img']), E(e['title']))) if e['img'] else '',
-        dl, ''.join(acts), 'Ещё турниры' if more else '', list_html(more, False) if more else '', cta())
+        dl, ''.join(acts), res_form(e), 'Ещё турниры' if more else '', list_html(more, False) if more else '', cta())
     ld = {'@context': 'https://schema.org', '@type': 'SportsEvent', 'name': e['title'], 'sport': e['sport'],
           'startDate': e['start'].isoformat(), 'endDate': e['end'].isoformat(), 'url': SITE + ev_url(e),
           'eventStatus': 'https://schema.org/EventScheduled',
@@ -530,6 +533,25 @@ def event_page(e, city_pages, all_ev):
         {'@type': 'ListItem', 'position': 2, 'name': e['title'], 'item': SITE + ev_url(e)}]}
     write(ev_url(e), page(ev_url(e), title + ' | ' + BRAND, desc, body, event_og(e), [ld, crumbs]))
     write(ev_url(e) + 'event.ics', ics(e))
+
+
+def res_form(e):
+    """Форма «Прислать результаты» — только для прошедших турниров, у которых ещё нет ссылки на результаты."""
+    if not e['past'] or e['res'] or not EXEC_URL:
+        return ''
+    return ('<form class="resform" data-resform action="%s" method="post">'
+            '<h3>Знаете, где результаты?</h3><p>Пришлите ссылку на протокол, лидерборд или пост с итогами — добавим её на страницу.</p>'
+            '<input type="hidden" name="kind" value="results"><input type="hidden" name="id" value="%s">'
+            '<div class="hp"><input name="website" tabindex="-1" autocomplete="off"></div>'
+            '<input type="url" name="url" required placeholder="https://…" aria-label="Ссылка на результаты">'
+            '<input type="text" name="note" maxlength="200" placeholder="Комментарий (необязательно)" aria-label="Комментарий">'
+            '<button class="btn sm" type="submit">Отправить</button></form>'
+            '<script>(function(){var f=document.querySelector("[data-resform]");if(!f)return;f.addEventListener("submit",function(ev){ev.preventDefault();'
+            'var b=f.querySelector("button");b.disabled=true;fetch(f.action,{method:"POST",mode:"no-cors",body:new URLSearchParams(new FormData(f))})'
+            '.then(function(){f.innerHTML=\'<p class="ok">Спасибо! Ссылка ушла на проверку и скоро появится на странице.</p>\';'
+            'try{if(window.ym)ym(%s,"reachGoal","results_sent")}catch(e){}})'
+            '.catch(function(){b.disabled=false;alert("Не получилось отправить, попробуйте ещё раз.")});});})();</script>') % (
+        E(EXEC_URL), E(e['id']), METRIKA_ID)
 
 
 def ics(e):

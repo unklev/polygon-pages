@@ -285,6 +285,10 @@ dd{margin:2px 0 0;overflow-wrap:anywhere}
 .chips a{font-family:var(--display);font-size:14px;letter-spacing:.06em;text-transform:uppercase;text-decoration:none;border:1px solid var(--ink);padding:6px 12px}
 .chips a:hover{background:var(--ink);color:#fff}
 .chips a span{color:var(--red);margin-left:6px}
+.chips button{font-family:var(--display);font-size:14px;letter-spacing:.06em;text-transform:uppercase;border:1px solid var(--ink);padding:6px 12px;background:var(--paper);color:var(--ink);cursor:pointer}
+.chips button span{color:var(--red);margin-left:6px}.chips button[aria-pressed=true]{background:var(--ink);color:#fff}.chips button[aria-pressed=true] span{color:#fff}
+a.st.res{text-decoration:none;white-space:nowrap}a.st.res:hover{background:var(--red)}
+.row[hidden],.list[hidden],.month[hidden]{display:none}
 section{margin-top:44px}
 .foot{margin-top:60px;border-top:3px solid var(--ink);padding:26px 0 40px;font-size:14px;color:var(--muted)}
 .foot a{color:var(--ink)}
@@ -311,7 +315,7 @@ def page(path, title, desc, body, image='', jsonld=None, noindex=False):
             '<nav><a class="btn ghost sm" href="%s">Календарь</a><a class="btn sm" href="%sorganizers">Разместить турнир</a></nav></div></header>'
             '<main class="wrap">%s</main>'
             '<footer class="wrap foot">«Полигон» — бесплатная площадка с анонсами соревнований по кроссфиту, функциональному многоборью и ГТО в России и СНГ. '
-            '<a href="%s">Интерактивный календарь</a> · <a href="%s">Telegram-канал</a> · <a href="/arhiv/">Архив</a> · '
+            '<a href="%s">Интерактивный календарь</a> · <a href="%s">Telegram-канал</a> · <a href="/rezultaty/">Результаты</a> · <a href="/arhiv/">Архив</a> · '
             '<a href="%sorganizers">Разместить турнир бесплатно</a></footer>' + METRIKA_JS + '</body></html>') % (
         E(title), E(desc), E(canon), '<meta name="robots" content="noindex">' if noindex else '',
         BRAND, E(title), E(desc), E(canon), (('<meta property="og:image" content="%s"><meta name="twitter:card" content="summary_large_image">' % E(image)) + ('<meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">' if '/og/' in image else '')) if image else '',
@@ -440,11 +444,12 @@ def row_html(e):
         E(day), E(MONTHS[d.month - 1][:3] + ' ' + str(d.year)), ev_url(e), E(e['title']), E(meta), c, E(t))
 
 
-def list_html(evs, by_month=True):
+def list_html(evs, by_month=True, row=None):
+    row = row or row_html
     if not evs:
         return '<p class="lead">Пока нет турниров. Загляните позже или подпишитесь на <a href="%s">Telegram-канал</a>.</p>' % TG
     if not by_month:
-        return '<ul class="list">%s</ul>' % ''.join(row_html(e) for e in evs)
+        return '<ul class="list">%s</ul>' % ''.join(row(e) for e in evs)
     out, cur = [], None
     for e in evs:
         k = (e['start'].year, e['start'].month)
@@ -453,7 +458,7 @@ def list_html(evs, by_month=True):
                 out.append('</ul>')
             out.append('<div class="month">%s %d</div><ul class="list">' % (MONTHS_NOM[k[1] - 1], k[0]))
             cur = k
-        out.append(row_html(e))
+        out.append(row(e))
     out.append('</ul>')
     return ''.join(out)
 
@@ -566,6 +571,45 @@ def ics(e):
     return '\r\n'.join(lines) + '\r\n'
 
 
+def res_row(e):
+    """Строка для страницы «Результаты»: название ведёт на страницу турнира, справа — ссылка прямо на протокол."""
+    d, end = e['start'], e['end']
+    day = ('%d–%d' % (d.day, end.day)) if end != d and end.month == d.month else str(d.day)
+    where = 'онлайн' if e['online'] else e['city']
+    meta = ' · '.join(x for x in [where, e['sport'], ', '.join(e['levels'])] if x)
+    return ('<li class="row" data-sport="%s"><div class="day">%s<small>%s</small></div><div><a class="t" href="%s">%s</a>'
+            '<div class="meta">%s</div></div><a class="st ok res" data-goal="results_click" href="%s" target="_blank" rel="nofollow noopener">Результаты ↗</a></li>') % (
+        E(e['sport']), E(day), E(MONTHS[d.month - 1][:3] + ' ' + str(d.year)), ev_url(e), E(e['title']), E(meta), E(e['res']))
+
+
+def results_page(events):
+    res = sorted([e for e in events if e['past'] and e.get('res')], key=lambda e: (e['end'], e['start']), reverse=True)
+    n = len(res)
+    sports = defaultdict(int)
+    for e in res:
+        sports[e['sport']] += 1
+    chips = ''
+    if len(sports) > 1:
+        chips = ('<div class="chips" data-resfilter><button type="button" data-sp="" aria-pressed="true">Все<span>%d</span></button>%s</div>' % (n, ''.join(
+            '<button type="button" data-sp="%s" aria-pressed="false">%s<span>%d</span></button>' % (E(sp), E(sp), c) for sp, c in sorted(sports.items(), key=lambda x: -x[1]))))
+    js = ('<script>(function(){var b=document.querySelector("[data-resfilter]");if(!b)return;b.addEventListener("click",function(ev){var t=ev.target.closest("button");if(!t)return;'
+          'var sp=t.getAttribute("data-sp");b.querySelectorAll("button").forEach(function(x){x.setAttribute("aria-pressed",x===t)});'
+          'document.querySelectorAll(".list .row").forEach(function(r){r.hidden=!!sp&&r.getAttribute("data-sport")!==sp});'
+          'document.querySelectorAll(".month").forEach(function(m){var l=m.nextElementSibling,v=l&&[].some.call(l.children,function(r){return!r.hidden});m.hidden=!v;if(l)l.hidden=!v});});})();</script>')
+    lead = ('Протоколы, лидерборды и итоги прошедших соревнований по кроссфиту, функциональному многоборью и ГТО из календаря «Полигона» — %d %s. '
+            'Название ведёт на страницу турнира, кнопка «Результаты» — сразу на протокол организатора.') % (n, plural(n, 'турнир', 'турнира', 'турниров'))
+    body = ('<div class="crumbs"><a href="/">Все турниры</a> → <a href="/arhiv/">Архив</a></div><h1>Результаты соревнований</h1><p class="lead">%s</p>%s%s'
+            '<p class="note" style="margin-top:28px">Нет результатов вашего турнира? Откройте его страницу в <a href="/arhiv/">архиве</a> и пришлите ссылку через форму «Знаете, где результаты?».</p>%s%s') % (
+        E(lead), chips, list_html(res, True, res_row), cta(), js)
+    items = {'@context': 'https://schema.org', '@type': 'ItemList', 'itemListElement': [
+        {'@type': 'ListItem', 'position': i + 1, 'url': SITE + ev_url(e), 'name': e['title']} for i, e in enumerate(res[:100])]}
+    og = og_card('/og/rezultaty.png', 'Календарь «Полигона»', 'Результаты соревнований', '%d %s с протоколами' % (n, plural(n, 'турнир', 'турнира', 'турниров'))) if n else ''
+    write('/rezultaty/', page('/rezultaty/', 'Результаты соревнований по кроссфиту и функциональному многоборью %d | %s' % (TODAY.year, BRAND),
+                              'Протоколы и лидерборды прошедших турниров по кроссфиту, функциональному многоборью и ГТО: %d %s.' % (n, plural(n, 'турнир', 'турнира', 'турниров')),
+                              body, og, [items], noindex=not n))
+    return n
+
+
 def listing(path, h1, lead, evs, title, desc, extra=''):
     up = [e for e in evs if not e['past']]
     past = sorted([e for e in evs if e['past']], key=lambda e: e['start'], reverse=True)
@@ -629,8 +673,11 @@ def build(events):
     urls.append(('/za-rubezhom/', 'daily', '0.6'))
 
     past = sorted([e for e in events if e['past']], key=lambda e: e['start'], reverse=True)
-    body = '<div class="crumbs"><a href="/">Все турниры</a></div><h1>Архив турниров</h1><p class="lead">Все прошедшие соревнования из календаря «Полигона» — %d %s.</p>%s' % (
+    body = '<div class="crumbs"><a href="/">Все турниры</a></div><h1>Архив турниров</h1><p class="lead">Все прошедшие соревнования из календаря «Полигона» — %d %s. Только турниры с протоколами — на странице <a href="/rezultaty/">«Результаты»</a>.</p>%s' % (
         len(past), plural(len(past), 'турнир', 'турнира', 'турниров'), list_html(past, False))
+    nres = results_page(events)
+    if nres:
+        urls.append(('/rezultaty/', 'weekly', '0.5'))
     write('/arhiv/', page('/arhiv/', 'Архив турниров по кроссфиту и функциональному многоборью | ' + BRAND, 'Прошедшие соревнования по кроссфиту, ФМ и ГТО из календаря «Полигона».', body))
     urls.append(('/arhiv/', 'weekly', '0.3'))
 
@@ -640,7 +687,8 @@ def build(events):
     chips = lambda items: '<div class="chips">%s</div>' % ''.join('<a href="%s">%s<span>%s</span></a>' % (h, E(t), n) for h, t, n in items)
     extra = ('<h2 style="margin-top:28px">Города</h2>' + chips([('/goroda/%s/' % slug(c), c, n) for c, n in cities if n] or [('/arhiv/', 'Архив', len(past))]) +
              '<h2 style="margin-top:28px">Уровень</h2>' + chips([('/uroven/%s/' % s, {'Дети и подростки': 'Дети'}.get(lv, lv), sum(1 for e in up if lv in e['levels'])) for lv, (s, h, _) in LEVELS.items()]) +
-             '<h2 style="margin-top:28px">Вид спорта</h2>' + chips([('/vid/%s/' % s, h, sum(1 for e in up if e['sport'] == sp)) for sp, (s, h, _) in SPORTS.items()] + [('/za-rubezhom/', 'За рубежом', sum(1 for e in ab if not e['past']))]))
+             '<h2 style="margin-top:28px">Вид спорта</h2>' + chips([('/vid/%s/' % s, h, sum(1 for e in up if e['sport'] == sp)) for sp, (s, h, _) in SPORTS.items()] + [('/za-rubezhom/', 'За рубежом', sum(1 for e in ab if not e['past']))]) +
+             ('<h2 style="margin-top:28px">Прошедшие</h2>' + chips([('/rezultaty/', 'Результаты', sum(1 for e in events if e['past'] and e.get('res'))), ('/arhiv/', 'Архив', len(past))])))
     body = ('<h1>Календарь соревнований по кроссфиту, функциональному многоборью и ГТО</h1>'
             '<p class="lead">%d %s впереди в %d %s России и СНГ. Новички, любители, RX, мастера и дети — выбирайте старт по уровню и городу. '
             'Есть и <a href="%s">интерактивный календарь с фильтрами и картой</a>.</p>%s<section><h2>Ближайшие турниры</h2>%s</section>%s') % (

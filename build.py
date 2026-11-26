@@ -431,6 +431,49 @@ def event_og(e):
                    ', '.join(e['levels']))
 
 
+# ---------------- разметка schema.org для расширенных сниппетов ----------------
+COUNTRY_ISO = {'россия': 'RU', 'рф': 'RU', 'казахстан': 'KZ', 'беларусь': 'BY', 'белоруссия': 'BY', 'оаэ': 'AE', 'объединённые арабские эмираты': 'AE',
+               'турция': 'TR', 'израиль': 'IL', 'египет': 'EG', 'таиланд': 'TH', 'тайланд': 'TH', 'грузия': 'GE', 'армения': 'AM', 'азербайджан': 'AZ',
+               'узбекистан': 'UZ', 'кыргызстан': 'KG', 'киргизия': 'KG', 'таджикистан': 'TJ', 'сербия': 'RS', 'черногория': 'ME', 'кипр': 'CY',
+               'индонезия': 'ID', 'вьетнам': 'VN', 'монголия': 'MN', 'китай': 'CN', 'катар': 'QA', 'саудовская аравия': 'SA', 'бахрейн': 'BH',
+               'оман': 'OM', 'мальдивы': 'MV', 'шри-ланка': 'LK', 'индия': 'IN', 'малайзия': 'MY', 'сингапур': 'SG', 'филиппины': 'PH'}
+
+
+def country_iso(c):
+    c = (c or '').strip()
+    if not c:
+        return 'RU'
+    if re.fullmatch(r'[A-Za-z]{2}', c):
+        return c.upper()
+    return COUNTRY_ISO.get(c.lower().replace('ё', 'е').replace('объединенные', 'объединённые'), '')
+
+
+CUR_RE = [('RUB', r'₽|руб|р\.'), ('USD', r'\$|usd|доллар'), ('EUR', r'€|eur|евро'), ('KZT', r'₸|тенге|kzt'),
+          ('AED', r'aed|дирхам'), ('TRY', r'try|лир'), ('THB', r'thb|бат'), ('BYN', r'byn|бел\.? ?руб')]
+
+
+def fee_offer(fee, country):
+    """Минимальный взнос и валюта из свободного текста «Взнос» — для поля offers.price."""
+    t = (fee or '').lower()
+    if not t:
+        return None
+    if re.search(r'бесплатн', t) and not re.search(r'\d', t):
+        return {'price': '0', 'priceCurrency': 'RUB'}
+    cur = next((c for c, rx in CUR_RE if re.search(rx, t)), '')
+    if cur == 'RUB' and re.search(r'бел\.? ?руб|byn', t):
+        cur = 'BYN'
+    if not cur and country_iso(country) == 'RU':
+        cur = 'RUB'
+    nums = []
+    for m in re.finditer(r'\d[\d\s\u00a0\u202f]*\d|\d', t):
+        n = int(re.sub(r'\D', '', m.group(0)))
+        if 100 <= n <= 1000000 and not 2020 <= n <= 2035:
+            nums.append(n)
+    if not cur or not nums:
+        return None
+    return {'price': str(min(nums)), 'priceCurrency': cur}
+
+
 # ---------------- страницы ----------------
 def row_html(e):
     c, t = status(e)
@@ -527,16 +570,25 @@ def event_page(e, city_pages, all_ev):
     else:
         ld['location'] = {'@type': 'Place', 'name': e['place'] or e['city'],
                           'address': {'@type': 'PostalAddress', 'addressLocality': e['city_short'],
-                                      'streetAddress': e['place'] or e['city'], 'addressCountry': e['country'] or 'RU'}}
-    if e['img']:
-        ld['image'] = [e['img']]
+                                      'streetAddress': e['place'] or e['city']}}
+        iso = country_iso(e['country'])
+        if iso:
+            ld['location']['address']['addressCountry'] = iso
+    og = event_og(e)
+    if og:
+        ld['image'] = [og]
     if reg:
-        ld['offers'] = {'@type': 'Offer', 'url': reg, 'availability': 'https://schema.org/SoldOut' if (e['deadline'] and e['deadline'] < TODAY) else 'https://schema.org/InStock'}
+        ld['offers'] = {'@type': 'Offer', 'url': reg, 'availability': 'https://schema.org/SoldOut' if (e['past'] or (e['deadline'] and e['deadline'] < TODAY)) else 'https://schema.org/InStock'}
+        price = fee_offer(e['fee'], e['country'])
+        if price:
+            ld['offers'].update(price)
+        if e['deadline']:
+            ld['offers']['validThrough'] = e['deadline'].isoformat()
     ld['organizer'] = {'@type': 'Organization', 'name': BRAND if not e['link'] else urlparse(e['link']).netloc, 'url': e['link'] or MAIN}
     crumbs = {'@context': 'https://schema.org', '@type': 'BreadcrumbList', 'itemListElement': [
         {'@type': 'ListItem', 'position': 1, 'name': 'Все турниры', 'item': SITE + '/'},
         {'@type': 'ListItem', 'position': 2, 'name': e['title'], 'item': SITE + ev_url(e)}]}
-    write(ev_url(e), page(ev_url(e), title + ' | ' + BRAND, desc, body, event_og(e), [ld, crumbs]))
+    write(ev_url(e), page(ev_url(e), title + ' | ' + BRAND, desc, body, og, [ld, crumbs]))
     write(ev_url(e) + 'event.ics', ics(e))
 
 

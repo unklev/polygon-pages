@@ -289,6 +289,7 @@ dd{margin:2px 0 0;overflow-wrap:anywhere}
 .chips button span{color:var(--red);margin-left:6px}.chips button[aria-pressed=true]{background:var(--ink);color:#fff}.chips button[aria-pressed=true] span{color:#fff}
 a.st.res{text-decoration:none;white-space:nowrap}a.st.res:hover{background:var(--red)}
 .row[hidden],.list[hidden],.month[hidden]{display:none}
+.kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0;border-top:1px solid var(--ink);border-left:1px solid var(--ink);margin:24px 0 8px}.kpis div{border-right:1px solid var(--ink);border-bottom:1px solid var(--ink);padding:14px 16px}.kpis b{display:block;font-family:var(--display);font-size:44px;line-height:1;color:var(--red);font-weight:500}.kpis span{font-size:14px;color:var(--muted)}.bars{margin:12px 0}.bar{display:grid;grid-template-columns:150px minmax(0,1fr) 44px;gap:12px;align-items:center;padding:5px 0;border-bottom:1px solid var(--rule)}.bar .bl{font-size:15px}.bar .bt{height:14px;background:var(--rule,#eee)}.bar .bt i{display:block;height:100%;background:var(--red)}.bar b{font-family:var(--display);font-size:18px;font-weight:500;text-align:right}.facts-list{padding-left:20px}.facts-list li{margin:6px 0}@media (max-width:760px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.kpis b{font-size:34px}.bar{grid-template-columns:110px minmax(0,1fr) 36px}}
 section{margin-top:44px}
 .foot{margin-top:60px;border-top:3px solid var(--ink);padding:26px 0 40px;font-size:14px;color:var(--muted)}
 .foot a{color:var(--ink)}
@@ -662,6 +663,94 @@ def results_page(events):
     return n
 
 
+def org_key(e):
+    """Грубый ключ организатора по ссылке: группа VK/канал TG/домен сайта."""
+    u = urlparse(e['link'] or '')
+    host = u.netloc.lower().replace('www.', '').replace('m.vk.', 'vk.').replace('vk.ru', 'vk.com')
+    if not host:
+        return ''
+    seg = u.path.strip('/').split('/')[0] if u.path.strip('/') else ''
+    if host in ('vk.com', 't.me'):
+        m = re.match(r'wall(-?\d+)_', seg)
+        return host + '/' + (m.group(1) if m else seg.lower())
+    if host in ('forms.yandex.ru', 'forms.gle', 'docs.google.com', 'timepad.ru', 'circle21.events', 'sorevi.ru', 'necrossfit.ru', 'orgeo.ru'):
+        return host + '/' + (seg.lower() if host in ('sorevi.ru', 'circle21.events') else e['title'].lower())
+    return host
+
+
+def itogi_page(events, year):
+    yr = [e for e in events if e['start'].year == year]
+    if not yr:
+        return 0
+    done = [e for e in yr if e['past']]
+    ru = [e for e in yr if not e['abroad']]
+    ab = [e for e in yr if e['abroad']]
+    cities = defaultdict(int)
+    for e in ru:
+        if not e['online'] and e['city'] != 'Город уточняется':
+            cities[e['city_short']] += 1
+    countries = defaultdict(int)
+    for e in ab:
+        countries[(e['country'] or e['city'].split(',')[-1]).strip() or 'другие'] += 1
+    sports = defaultdict(int)
+    for e in yr:
+        sports[e['sport'] or 'другое'] += 1
+    months = [0] * 12
+    for e in yr:
+        months[e['start'].month - 1] += 1
+    levels = defaultdict(int)
+    for e in yr:
+        for lv in e['levels']:
+            levels[lv] += 1
+    orgs = {k for k in (org_key(e) for e in yr) if k}
+    nres = sum(1 for e in done if e.get('res'))
+    kids = sum(1 for e in yr if 'Дети и подростки' in e['levels'])
+    online = sum(1 for e in yr if e['online'] or e['qs'] or e['qe'])
+    busiest = max(range(12), key=lambda i: months[i])
+    top_c = sorted(cities.items(), key=lambda x: (-x[1], x[0]))[:12]
+    tw = lambda n: '%d %s' % (n, plural(n, 'турнир', 'турнира', 'турниров'))
+
+    def bars(items, total=None):
+        mx = max([n for _, n in items] or [1])
+        return '<div class="bars">%s</div>' % ''.join(
+            '<div class="bar"><span class="bl">%s</span><span class="bt"><i style="width:%d%%"></i></span><b>%d</b></div>' % (lbl, (max(3, round(n * 100 / mx)) if n else 0), n)
+            for lbl, n in items)
+
+    stats = [(len(yr), plural(len(yr), 'турнир', 'турнира', 'турниров') + ' в календаре'),
+             (len(cities), plural(len(cities), 'город', 'города', 'городов') + ' России'),
+             (len(ab), 'за рубежом'),
+             (len(orgs), plural(len(orgs), 'организатор', 'организатора', 'организаторов')),
+             (nres, 'с протоколами результатов'),
+             (kids, 'с детскими категориями')]
+    grid = '<div class="kpis">%s</div>' % ''.join('<div><b>%d</b><span>%s</span></div>' % (n, E(t)) for n, t in stats)
+    asof = '' if TODAY.year > year else ' Данные на %s — страница обновляется до конца года.' % fdate(TODAY)
+    lead = ('Каким был %d год в календаре «Полигона»: %s, из них прошло — %d. Самый насыщенный месяц — %s (%s).%s') % (
+        year, tw(len(yr)), len(done), MONTHS_NOM[busiest].lower(), tw(months[busiest]), asof)
+    lvl_order = [lv for lv in LEVELS] + [lv for lv in levels if lv not in LEVELS]
+    body = ('<div class="crumbs"><a href="/">Все турниры</a> → <a href="/rezultaty/">Результаты</a></div>'
+            '<h1>Итоги %d года</h1><p class="lead">%s</p>%s'
+            '<section><h2>По месяцам</h2>%s</section>'
+            '<section><h2>Города России</h2>%s<p class="note">Онлайн-турниры и турниры с городом «уточняется» не учтены.</p></section>'
+            '<section><h2>Вид спорта</h2>%s</section>'
+            '<section><h2>Уровни участников</h2>%s<p class="note">Один турнир может быть открыт для нескольких уровней.</p></section>'
+            '%s'
+            '<section><h2>Ещё цифры</h2><ul class="facts-list"><li>Турниров с онлайн-отбором или онлайн-форматом: <b>%d</b></li>'
+            '<li>Прошедших турниров с протоколами на «Полигоне»: <b>%d</b> из %d — <a href="/rezultaty/">все результаты</a></li></ul></section>'
+            '<p class="note" style="margin-top:28px">Не нашли свой турнир? <a href="%sorganizers">Разместите его бесплатно</a> — он попадёт в календарь и в итоги следующего года.</p>%s') % (
+        year, E(lead), grid,
+        bars([(MONTHS_NOM[i][:3], months[i]) for i in range(12)]),
+        bars([('<a href="/goroda/%s/">%s</a>' % (slug(c), E(c)), n) for c, n in top_c]) if top_c else '<p class="note">Нет данных.</p>',
+        bars([(E(sp), n) for sp, n in sorted(sports.items(), key=lambda x: -x[1])]),
+        bars([(E({'Дети и подростки': 'Дети'}.get(lv, lv)), levels[lv]) for lv in lvl_order if levels.get(lv)]),
+        ('<section><h2>За рубежом</h2>%s</section>' % bars([(E(c), n) for c, n in sorted(countries.items(), key=lambda x: (-x[1], x[0]))[:8]])) if ab else '',
+        online, nres, len(done), MAIN, cta())
+    og = og_card('/og/itogi-%d.png' % year, 'Календарь «Полигона»', 'Итоги %d года' % year, '%s · %d %s' % (tw(len(yr)), len(cities), plural(len(cities), 'город', 'города', 'городов')))
+    path = '/itogi-%d/' % year
+    write(path, page(path, 'Итоги %d года: соревнования по кроссфиту, функциональному многоборью и ГТО | %s' % (year, BRAND),
+                     'Сколько турниров по кроссфиту, функциональному многоборью и ГТО прошло в %d году: города, месяцы, виды спорта и уровни.' % year, body, og))
+    return len(yr)
+
+
 def listing(path, h1, lead, evs, title, desc, extra=''):
     up = [e for e in evs if not e['past']]
     past = sorted([e for e in evs if e['past']], key=lambda e: e['start'], reverse=True)
@@ -730,6 +819,9 @@ def build(events):
     nres = results_page(events)
     if nres:
         urls.append(('/rezultaty/', 'weekly', '0.5'))
+    itogi_year = TODAY.year if TODAY.month >= 11 else TODAY.year - 1
+    if itogi_page(events, itogi_year):
+        urls.append(('/itogi-%d/' % itogi_year, 'weekly', '0.5'))
     write('/arhiv/', page('/arhiv/', 'Архив турниров по кроссфиту и функциональному многоборью | ' + BRAND, 'Прошедшие соревнования по кроссфиту, ФМ и ГТО из календаря «Полигона».', body))
     urls.append(('/arhiv/', 'weekly', '0.3'))
 
@@ -740,7 +832,8 @@ def build(events):
     extra = ('<h2 style="margin-top:28px">Города</h2>' + chips([('/goroda/%s/' % slug(c), c, n) for c, n in cities if n] or [('/arhiv/', 'Архив', len(past))]) +
              '<h2 style="margin-top:28px">Уровень</h2>' + chips([('/uroven/%s/' % s, {'Дети и подростки': 'Дети'}.get(lv, lv), sum(1 for e in up if lv in e['levels'])) for lv, (s, h, _) in LEVELS.items()]) +
              '<h2 style="margin-top:28px">Вид спорта</h2>' + chips([('/vid/%s/' % s, h, sum(1 for e in up if e['sport'] == sp)) for sp, (s, h, _) in SPORTS.items()] + [('/za-rubezhom/', 'За рубежом', sum(1 for e in ab if not e['past']))]) +
-             ('<h2 style="margin-top:28px">Прошедшие</h2>' + chips([('/rezultaty/', 'Результаты', sum(1 for e in events if e['past'] and e.get('res'))), ('/arhiv/', 'Архив', len(past))])))
+             ('<h2 style="margin-top:28px">Прошедшие</h2>' + chips([('/rezultaty/', 'Результаты', sum(1 for e in events if e['past'] and e.get('res'))), ('/arhiv/', 'Архив', len(past)),
+                                                         ('/itogi-%d/' % (TODAY.year if TODAY.month >= 11 else TODAY.year - 1), 'Итоги %d' % (TODAY.year if TODAY.month >= 11 else TODAY.year - 1), sum(1 for e in events if e['start'].year == (TODAY.year if TODAY.month >= 11 else TODAY.year - 1)))])))
     body = ('<h1>Календарь соревнований по кроссфиту, функциональному многоборью и ГТО</h1>'
             '<p class="lead">%d %s впереди в %d %s России и СНГ. Новички, любители, RX, мастера и дети — выбирайте старт по уровню и городу. '
             'Есть и <a href="%s">интерактивный календарь с фильтрами и картой</a>.</p>%s<section><h2>Ближайшие турниры</h2>%s</section>%s') % (

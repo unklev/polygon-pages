@@ -717,7 +717,7 @@ def itogi_page(events, year):
             for lbl, n in items)
 
     stats = [(len(yr), plural(len(yr), 'турнир', 'турнира', 'турниров') + ' в календаре'),
-             (len(cities), plural(len(cities), 'город', 'города', 'городов') + ' России'),
+             (len(cities), plural(len(cities), 'город', 'города', 'городов')),
              (len(ab), 'за рубежом'),
              (len(orgs), plural(len(orgs), 'организатор', 'организатора', 'организаторов')),
              (nres, 'с протоколами результатов'),
@@ -730,7 +730,7 @@ def itogi_page(events, year):
     body = ('<div class="crumbs"><a href="/">Все турниры</a> → <a href="/rezultaty/">Результаты</a></div>'
             '<h1>Итоги %d года</h1><p class="lead">%s</p>%s'
             '<section><h2>По месяцам</h2>%s</section>'
-            '<section><h2>Города России</h2>%s<p class="note">Онлайн-турниры и турниры с городом «уточняется» не учтены.</p></section>'
+            '<section><h2>Города</h2>%s<p class="note">Онлайн-турниры и турниры с городом «уточняется» не учтены.</p></section>'
             '<section><h2>Вид спорта</h2>%s</section>'
             '<section><h2>Уровни участников</h2>%s<p class="note">Один турнир может быть открыт для нескольких уровней.</p></section>'
             '%s'
